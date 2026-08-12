@@ -41,7 +41,7 @@ FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
-COPY --from=builder /app/public ./public
+# COPY --from=builder /app/public ./public (commented out as there is no public folder)
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
