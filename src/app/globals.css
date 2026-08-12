@@ -1,0 +1,207 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --silver-bg-1: #e2e6eb;
+  --silver-bg-2: #cdd2d9;
+  --panel-light: #f5f7f9;
+  --panel-dark: #d5d9df;
+  --chrome-light: #ffffff;
+  --chrome-dark: #aeb4bc;
+  --text-main: #333d47;
+  --text-muted: #64707d;
+  --highlight: #ffffff;
+  --shadow: #949ca5;
+}
+
+body {
+  color: var(--text-main);
+  background-color: var(--silver-bg-1);
+  background-image: linear-gradient(135deg, var(--silver-bg-1) 0%, var(--silver-bg-2) 100%);
+  font-family: 'Courier New', monospace;
+  overflow-x: hidden;
+}
+
+/* Rich 3D Metallic Panels */
+.y2k-window {
+  background: linear-gradient(135deg, var(--panel-light) 0%, var(--panel-dark) 100%);
+  border-radius: 4px;
+  border-top: 2px solid var(--highlight);
+  border-left: 2px solid var(--highlight);
+  border-bottom: 2px solid var(--shadow);
+  border-right: 2px solid var(--shadow);
+  box-shadow: 
+    5px 5px 15px rgba(100, 112, 125, 0.4),
+    inset 2px 2px 5px rgba(255, 255, 255, 0.8);
+  position: relative;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Machined Cyber Sigil Corners (3D effect instead of flat) */
+.y2k-window::before {
+  content: '';
+  position: absolute;
+  top: -4px; left: -4px;
+  width: 16px; height: 16px;
+  background: linear-gradient(135deg, var(--chrome-light) 0%, var(--chrome-dark) 100%);
+  border-radius: 50% 0 0 0;
+  border: 1px solid var(--shadow);
+  box-shadow: 1px 1px 2px rgba(100,112,125,0.5);
+  pointer-events: none;
+}
+
+.y2k-window::after {
+  content: '';
+  position: absolute;
+  bottom: -4px; right: -4px;
+  width: 16px; height: 16px;
+  background: linear-gradient(135deg, var(--chrome-light) 0%, var(--chrome-dark) 100%);
+  border-radius: 0 0 50% 0;
+  border: 1px solid var(--shadow);
+  box-shadow: -1px -1px 2px rgba(255,255,255,0.8);
+  pointer-events: none;
+}
+
+.y2k-window-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 
+    8px 8px 20px rgba(100, 112, 125, 0.5),
+    inset 2px 2px 5px rgba(255, 255, 255, 0.9);
+}
+
+/* Metallic Titlebars - No Black */
+.y2k-titlebar {
+  background: linear-gradient(to right, var(--chrome-light) 0%, var(--chrome-dark) 100%);
+  color: var(--text-main);
+  border-bottom: 2px solid var(--shadow);
+  border-top: 1px solid var(--highlight);
+  padding: 8px 16px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  text-shadow: 1px 1px 0px rgba(255, 255, 255, 0.9);
+  border-radius: 2px 2px 0 0;
+  box-shadow: inset 0px -2px 5px rgba(100, 112, 125, 0.2);
+}
+
+/* Cyber data accents on titlebar */
+.y2k-titlebar::after {
+  content: '/// SYS.ACTIVE';
+  float: right;
+  font-weight: 900;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  font-size: 10px;
+  margin-top: 2px;
+}
+
+/* Heavy 3D Chrome Buttons */
+.y2k-button {
+  background: linear-gradient(to bottom, #ffffff 0%, #e2e6eb 40%, #cdd2d9 50%, #e2e6eb 100%);
+  border-top: 2px solid var(--highlight);
+  border-left: 2px solid var(--highlight);
+  border-bottom: 2px solid var(--shadow);
+  border-right: 2px solid var(--shadow);
+  border-radius: 3px;
+  color: var(--text-main);
+  font-weight: 900;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  position: relative;
+  transition: all 0.1s ease;
+  box-shadow: 
+    3px 3px 8px rgba(100, 112, 125, 0.3),
+    inset 0px 2px 5px rgba(255,255,255,0.8);
+}
+
+.y2k-button:hover {
+  background: linear-gradient(to bottom, #ffffff 0%, #f5f7f9 40%, #e2e6eb 50%, #f5f7f9 100%);
+  color: #111;
+}
+
+.y2k-button:active, .y2k-button-active {
+  background: linear-gradient(to top, #cdd2d9 0%, #aeb4bc 100%);
+  border-top: 2px solid var(--shadow);
+  border-left: 2px solid var(--shadow);
+  border-bottom: 2px solid var(--highlight);
+  border-right: 2px solid var(--highlight);
+  box-shadow: inset 3px 3px 6px rgba(100, 112, 125, 0.6);
+  transform: translateY(2px) translateX(2px);
+  color: #111;
+}
+
+.y2k-button-pink, .y2k-button-green {
+  background: linear-gradient(to bottom, #ffffff 0%, #e2e6eb 40%, #cdd2d9 50%, #e2e6eb 100%);
+  border-top: 2px solid var(--highlight);
+  border-left: 2px solid var(--highlight);
+  border-bottom: 2px solid var(--shadow);
+  border-right: 2px solid var(--shadow);
+  border-radius: 3px;
+  color: var(--text-main);
+  font-weight: 900;
+  box-shadow: 3px 3px 8px rgba(100, 112, 125, 0.3);
+}
+
+.y2k-button-pink:hover, .y2k-button-green:hover {
+  background: #ffffff;
+}
+
+.y2k-button-pink:active, .y2k-button-green:active {
+  background: var(--chrome-dark);
+  border-top: 2px solid var(--shadow);
+  border-left: 2px solid var(--shadow);
+  border-bottom: 2px solid var(--highlight);
+  border-right: 2px solid var(--highlight);
+  box-shadow: inset 3px 3px 6px rgba(100, 112, 125, 0.6);
+  transform: translateY(2px) translateX(2px);
+}
+
+/* Inset LCD Screens - Grey/Silver, No Black */
+.y2k-inset-box {
+  background: linear-gradient(to bottom, #d5d9df 0%, #e2e6eb 100%);
+  border-top: 2px solid var(--shadow);
+  border-left: 2px solid var(--shadow);
+  border-bottom: 2px solid var(--highlight);
+  border-right: 2px solid var(--highlight);
+  border-radius: 3px;
+  box-shadow: inset 3px 3px 8px rgba(100, 112, 125, 0.4);
+  color: var(--text-main); 
+  position: relative;
+}
+
+/* Tech Badges - 3D */
+.y2k-badge-pink, .y2k-badge-mint, .y2k-badge-lavender, .y2k-badge-yellow {
+  background: linear-gradient(to bottom, var(--chrome-light) 0%, var(--chrome-dark) 100%);
+  color: var(--text-main);
+  border-top: 1px solid var(--highlight);
+  border-left: 1px solid var(--highlight);
+  border-bottom: 1px solid var(--shadow);
+  border-right: 1px solid var(--shadow);
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  box-shadow: 1px 1px 3px rgba(100,112,125,0.3);
+}
+
+/* Scrollbar - Chrome */
+::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+::-webkit-scrollbar-track {
+  background: var(--silver-bg-2);
+  border-left: 1px solid var(--shadow);
+  box-shadow: inset 2px 0px 5px rgba(100,112,125,0.2);
+}
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(to right, var(--chrome-light) 0%, var(--chrome-dark) 100%);
+  border: 1px solid var(--shadow);
+  border-radius: 2px;
+  border-top: 1px solid var(--highlight);
+  border-left: 1px solid var(--highlight);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--highlight);
+}
