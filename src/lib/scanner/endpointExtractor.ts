@@ -62,6 +62,11 @@ export function extractDataSources(html: string, scriptContents: string[], baseU
     }
   }
 
+  const genericApiRegex = /(https?:\/\/[a-zA-Z0-9.\-_]+\/[^\s"'<>)]+\.(json|php|xml|yaml|yml)(\?[^\s"'<>)]*)?)/gi;
+  while ((match = genericApiRegex.exec(combined)) !== null) {
+    addSource('REST API', match[1], 'DOM & JS Bundles Scanner', 'GET');
+  }
+
   // 6. WebSockets
   const wsRegex = /((wss?:\/\/[a-zA-Z0-9.\-_:]+\/[^\s"'<>)]*))/gi;
   while ((match = wsRegex.exec(combined)) !== null) {
