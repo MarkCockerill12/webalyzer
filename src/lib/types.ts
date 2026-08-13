@@ -8,7 +8,7 @@ export interface TechItem {
 }
 
 export interface DataSourceItem {
-  type: 'SharePoint' | 'REST API' | 'GraphQL' | 'AWS S3 Bucket' | 'Azure Blob' | 'Firebase' | 'Supabase' | 'WebSocket' | 'Database String' | 'Exposed Endpoint';
+  type: 'SharePoint' | 'REST API' | 'GraphQL' | 'AWS S3 Bucket' | 'Azure Blob' | 'Firebase' | 'Supabase' | 'WebSocket' | 'Database String' | 'Exposed Endpoint' | 'AWS API Gateway' | 'Microsoft Graph API' | 'Azure Functions' | 'GCP Cloud Run / Functions';
   url: string;
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'WS' | 'UNKNOWN';
   source: string; // e.g. "bundle.js L1420"
