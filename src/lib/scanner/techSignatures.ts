@@ -135,6 +135,18 @@ export function detectTechStack(
   if (serverHeader.includes('nginx')) {
     addTech({ name: 'Nginx', category: 'CDN / Hosting', confidence: 95, description: 'High Performance Web Server' });
   }
+  if (serverHeader.includes('amazon') || lowerHeaders['x-amz-cf-id'] || lowerHeaders['x-amz-server-side-encryption']) {
+    addTech({ name: 'AWS CloudFront / S3', category: 'CDN / Hosting', confidence: 100, description: 'Amazon Web Services Global CDN' });
+  }
+  if (lowerHeaders['x-msedge-ref'] || lowerHeaders['x-azure-ref'] || url.includes('azurewebsites.net')) {
+    addTech({ name: 'Microsoft Azure', category: 'CDN / Hosting', confidence: 100, description: 'Microsoft Azure Cloud Infrastructure' });
+  }
+  if (lowerHeaders['x-goog-generation'] || lowerHeaders['x-goog-metageneration'] || serverHeader.includes('google')) {
+    addTech({ name: 'Google Cloud (GCP)', category: 'CDN / Hosting', confidence: 95, description: 'Google Cloud Platform Hosting' });
+  }
+  if (lowerHeaders['x-sharepointhealthscore'] || lowerHeaders['sprequestguid']) {
+    addTech({ name: 'Microsoft SharePoint', category: 'CMS / Platform', confidence: 100, description: 'Enterprise Collaboration Platform' });
+  }
 
   // 8. PHP / WordPress / Laravel
   if (poweredBy.includes('php') || lowerCombined.includes('.php') || lowerHeaders['set-cookie']?.includes('phpsessid')) {

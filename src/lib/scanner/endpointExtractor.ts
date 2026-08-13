@@ -67,6 +67,27 @@ export function extractDataSources(html: string, scriptContents: string[], baseU
     addSource('REST API', match[1], 'DOM & JS Bundles Scanner', 'GET');
   }
 
+  // Cloud APIs & Microservices (AWS, Azure, GCP, Microsoft Graph)
+  const awsApiRegex = /(https?:\/\/[a-zA-Z0-9.\-_]+\.execute-api\.[a-z0-9\-]+\.amazonaws\.com[^\s"'<>)]*)/gi;
+  while ((match = awsApiRegex.exec(combined)) !== null) {
+    addSource('AWS API Gateway', match[1], 'Cloud Endpoint', 'POST');
+  }
+
+  const msGraphRegex = /(https?:\/\/graph\.microsoft\.com[^\s"'<>)]*)/gi;
+  while ((match = msGraphRegex.exec(combined)) !== null) {
+    addSource('Microsoft Graph API', match[1], 'Cloud Endpoint', 'GET');
+  }
+
+  const azureFuncRegex = /(https?:\/\/[a-zA-Z0-9.\-_]+\.azurewebsites\.net\/api[^\s"'<>)]*)/gi;
+  while ((match = azureFuncRegex.exec(combined)) !== null) {
+    addSource('Azure Functions', match[1], 'Cloud Endpoint', 'POST');
+  }
+
+  const gcpApiRegex = /(https?:\/\/[a-zA-Z0-9.\-_]+\.cloudfunctions\.net[^\s"'<>)]*|https?:\/\/[a-zA-Z0-9.\-_]+\.run\.app[^\s"'<>)]*)/gi;
+  while ((match = gcpApiRegex.exec(combined)) !== null) {
+    addSource('GCP Cloud Run / Functions', match[1], 'Cloud Endpoint', 'POST');
+  }
+
   // 6. WebSockets
   const wsRegex = /((wss?:\/\/[a-zA-Z0-9.\-_:]+\/[^\s"'<>)]*))/gi;
   while ((match = wsRegex.exec(combined)) !== null) {

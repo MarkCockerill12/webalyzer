@@ -49,9 +49,13 @@ export async function runNetworkScanner(url: string, timeoutMs: number = 8000): 
         
         // Detect CDNs or specific services via URL
         if (parsedUrl.hostname.includes('supabase')) result.technologies.add('Supabase');
-        if (parsedUrl.hostname.includes('firebase')) result.technologies.add('Firebase');
-        if (parsedUrl.hostname.includes('sharepoint.com')) result.technologies.add('SharePoint');
+        if (parsedUrl.hostname.includes('firebase')) result.technologies.add('Google Firebase');
+        if (parsedUrl.hostname.includes('sharepoint.com')) result.technologies.add('Microsoft SharePoint');
+        if (parsedUrl.hostname.includes('graph.microsoft.com')) result.technologies.add('Microsoft Graph API');
         if (parsedUrl.hostname.includes('s3.amazonaws')) result.technologies.add('AWS S3');
+        if (parsedUrl.hostname.includes('execute-api')) result.technologies.add('AWS API Gateway');
+        if (parsedUrl.hostname.includes('azurewebsites.net') || parsedUrl.hostname.includes('blob.core.windows.net')) result.technologies.add('Microsoft Azure');
+        if (parsedUrl.hostname.includes('cloudfunctions.net') || parsedUrl.hostname.includes('run.app')) result.technologies.add('Google Cloud (GCP)');
         if (parsedUrl.hostname.includes('vercel.app')) result.technologies.add('Vercel');
         
       } catch(e) {}
