@@ -21,7 +21,9 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true \
     PNPM_HOME="/pnpm" \
     PATH="$PNPM_HOME:$PATH"
 
-RUN npm install -g pnpm
+# Pin pnpm to the version that wrote pnpm-lock.yaml. Newer majors fail the install with
+# ERR_PNPM_IGNORED_BUILDS because they no longer honour onlyBuiltDependencies.
+RUN npm install -g pnpm@10.29.3
 
 # ---- Dependencies ----
 FROM base AS deps
