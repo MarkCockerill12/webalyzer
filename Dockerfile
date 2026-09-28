@@ -15,7 +15,8 @@ RUN apk add --no-cache \
     npm
 
 # Tell Puppeteer to skip installing its own Chrome and use the system one
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+ENV PUPPETEER_SKIP_DOWNLOAD=true \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
     PNPM_HOME="/pnpm" \
     PATH="$PNPM_HOME:$PATH"

@@ -1,104 +1,151 @@
-import { DataSourceItem } from '../types';
+import { DataSourceItem, DataSourceType } from '../types';
 
-export function extractDataSources(html: string, scriptContents: string[], baseUrl: string): DataSourceItem[] {
-  const sources: DataSourceItem[] = [];
-  const combined = [html, ...scriptContents].join('\n');
-  const seenUrls = new Set<string>();
+export interface ContentSource {
+  label: string; // "HTML" or a script file name
+  content: string;
+}
 
-  function addSource(type: DataSourceItem['type'], url: string, sourceLoc: string, method: DataSourceItem['method'] = 'GET') {
-    const cleanUrl = url.trim();
-    if (cleanUrl.length < 5 || seenUrls.has(cleanUrl)) return;
-    seenUrls.add(cleanUrl);
-    sources.push({
+const TRACKING_HOSTS =
+  /(?:^|\.)(?:google-analytics\.com|analytics\.google\.com|googletagmanager\.com|doubleclick\.net|googlesyndication\.com|googleadservices\.com|facebook\.net|hotjar\.(?:com|io)|clarity\.ms|segment\.(?:io|com)|mixpanel\.com|amplitude\.com|sentry\.io|datadoghq\.(?:com|eu)|newrelic\.com|nr-data\.net|bat\.bing\.com|px\.ads\.linkedin\.com|snap\.licdn\.com|analytics\.tiktok\.com|cloudflareinsights\.com|posthog\.com|plausible\.io|hubspot\.com|hs-analytics\.net|intercom\.io|lr-ingest\.io|fullstory\.com|quantserve\.com|scorecardresearch\.com|adnxs\.com|criteo\.com|taboola\.com|outbrain\.com)$/i;
+
+// Hosts that appear in library code / comments rather than as real backends
+const NOISE_HOSTS =
+  /(?:^|\.)(?:w3\.org|schema\.org|xmlns\.com|purl\.org|ogp\.me|reactjs\.org|react\.dev|nextjs\.org|vuejs\.org|angular\.io|svelte\.dev|babeljs\.io|webpack\.js\.org|developer\.mozilla\.org|mozilla\.org|github\.com|githubusercontent\.com|npmjs\.(?:com|org)|jquery\.com|fb\.me|example\.(?:com|org|net)|localhost|stackoverflow\.com|wikipedia\.org|tc39\.es|whatwg\.org|json-schema\.org|feross\.org|polyfill\.io|lodash\.com|momentjs\.com|sentry-cdn\.com)$/i;
+
+const STATIC_ASSET = /\.(?:png|jpe?g|gif|svg|webp|avif|ico|css|woff2?|ttf|otf|eot|mp4|webm|mp3|wav|map|js|mjs|txt|pdf)(?:[?#]|$)/i;
+const API_HINT = /(?:^|\/)(?:api|apis|v\d+(?:\.\d+)?|graphql|gql|rest|rpc|_api|wp-json|odata|services?|ajax|query|rpc)(?:\/|$|\?)|\.(?:json|php|aspx|asmx|ashx)(?:\?|$)/i;
+
+export function classifyEndpoint(url: string): DataSourceType {
+  const lower = url.toLowerCase();
+  let host = '';
+  let path = lower;
+  try {
+    const parsed = new URL(url, 'https://placeholder.invalid');
+    host = parsed.hostname === 'placeholder.invalid' ? '' : parsed.hostname;
+    path = parsed.pathname;
+  } catch {}
+
+  if (/^wss?:/.test(lower)) return 'WebSocket';
+  if (host.endsWith('.sharepoint.com') || path.includes('/_api/web') || path.includes('_layouts/15/')) return 'SharePoint';
+  if (/\.execute-api\.[a-z0-9-]+\.amazonaws\.com$/.test(host)) return 'AWS API Gateway';
+  if (/(?:^|\.)s3[.-](?:[a-z0-9-]+\.)?amazonaws\.com$/.test(host) || host === 's3.amazonaws.com' || host.endsWith('.s3.amazonaws.com')) return 'AWS S3 Bucket';
+  if (host.endsWith('.blob.core.windows.net')) return 'Azure Blob';
+  if (host === 'graph.microsoft.com') return 'Microsoft Graph API';
+  if (host.endsWith('.azurewebsites.net') && path.startsWith('/api')) return 'Azure Functions';
+  if (host.endsWith('.cloudfunctions.net') || host.endsWith('.run.app')) return 'GCP Cloud Run / Functions';
+  if (/(?:firebaseio\.com|firebaseapp\.com|firestore\.googleapis\.com|firebasestorage\.googleapis\.com)$/.test(host)) return 'Firebase';
+  if (host.endsWith('.supabase.co') || host.endsWith('.supabase.in')) return 'Supabase';
+  if (TRACKING_HOSTS.test(host) || (host.endsWith('facebook.com') && path === '/tr') || path.includes('/_vercel/insights') || path.includes('/cdn-cgi/rum')) {
+    return 'Telemetry / Tracking';
+  }
+  if (/\/graphql\b|\/gql\b/.test(path)) return 'GraphQL';
+  return 'REST API';
+}
+
+function cleanMatch(raw: string): string {
+  let url = raw.split('${')[0].split('#{')[0];
+  url = url.replace(/[\\,;.)}\]`]+$/, '');
+  return url;
+}
+
+function maskDbCredentials(conn: string): string {
+  return conn.replace(/(:\/\/[^:/@\s]+):([^@/\s]+)@/, '$1:****@');
+}
+
+export function extractDataSources(sources: ContentSource[], baseUrl: string): DataSourceItem[] {
+  const results: DataSourceItem[] = [];
+  const seen = new Set<string>();
+  const add = (rawUrl: string, sourceLabel: string, method?: DataSourceItem['method'], forceType?: DataSourceType) => {
+    const url = cleanMatch(rawUrl);
+    if (url.length < 4 || url.length > 400) return;
+
+    let resolvedUrl: string | undefined;
+    let host: string | undefined;
+    try {
+      const parsed = new URL(url, baseUrl);
+      resolvedUrl = parsed.toString();
+      host = parsed.hostname;
+    } catch {}
+
+    const type = forceType || classifyEndpoint(resolvedUrl || url);
+    const key = `${type}|${(resolvedUrl || url).replace(/\/$/, '')}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+
+    results.push({
       type,
-      url: cleanUrl,
-      method,
-      source: sourceLoc,
-      confidence: cleanUrl.startsWith('http') ? 95 : 80,
+      url: forceType === 'Database String' ? maskDbCredentials(url) : url,
+      resolvedUrl: forceType === 'Database String' ? undefined : resolvedUrl,
+      host,
+      method: method || (type === 'GraphQL' || type === 'Supabase' ? 'POST' : type === 'WebSocket' ? 'WS' : 'GET'),
+      source: sourceLabel,
+      confidence: url.startsWith('http') || url.startsWith('ws') ? 90 : 75,
     });
-  }
+  };
 
-  // 1. SharePoint links & APIs
-  const sharepointRegex = /(https?:\/\/[a-zA-Z0-9\-_.]+\.sharepoint\.com[^\s"'<>)]*|\/_api\/web\/[^\s"'<>)]*|_layouts\/15\/[^\s"'<>)]*)/gi;
-  let match: RegExpExecArray | null;
-  while ((match = sharepointRegex.exec(combined)) !== null) {
-    addSource('SharePoint', match[1], 'Script / HTML DOM', 'GET');
-  }
+  for (const { label, content } of sources) {
+    if (!content) continue;
+    let m: RegExpExecArray | null;
 
-  // 2. AWS S3 Buckets & Cloud Storage
-  const s3Regex = /(https?:\/\/[a-zA-Z0-9.\-_]+\.s3[a-zA-Z0-9.\-_]*\.amazonaws\.com[^\s"'<>)]*|https?:\/\/s3\.amazonaws\.com\/[a-zA-Z0-9.\-_]+[^\s"'<>)]*)/gi;
-  while ((match = s3Regex.exec(combined)) !== null) {
-    addSource('AWS S3 Bucket', match[1], 'Asset bundle', 'GET');
-  }
-
-  const azureBlobRegex = /(https?:\/\/[a-zA-Z0-9.\-_]+\.blob\.core\.windows\.net[^\s"'<>)]*)/gi;
-  while ((match = azureBlobRegex.exec(combined)) !== null) {
-    addSource('Azure Blob', match[1], 'Asset bundle', 'GET');
-  }
-
-  // 3. Firebase & Supabase links
-  const firebaseRegex = /(https?:\/\/[a-zA-Z0-9.\-_]+\.(firebaseio\.com|firebaseapp\.com)[^\s"'<>)]*)/gi;
-  while ((match = firebaseRegex.exec(combined)) !== null) {
-    addSource('Firebase', match[1], 'Firebase config string', 'GET');
-  }
-
-  const supabaseRegex = /(https?:\/\/[a-zA-Z0-9.\-_]+\.supabase\.co[^\s"'<>)]*)/gi;
-  while ((match = supabaseRegex.exec(combined)) !== null) {
-    addSource('Supabase', match[1], 'Supabase client init', 'POST');
-  }
-
-  // 4. GraphQL Endpoints
-  const graphqlRegex = /(https?:\/\/[^\s"'<>)]*\/graphql|\/graphql|\/api\/graphql)/gi;
-  while ((match = graphqlRegex.exec(combined)) !== null) {
-    addSource('GraphQL', match[1], 'JS fetch/axios client', 'POST');
-  }
-
-  // 5. REST API Endpoints & Routes
-  const apiRouteRegex = /(https?:\/\/api\.[a-zA-Z0-9.\-_]+\/[^\s"'<>)]*|["'](\/api\/v[0-9]+\/[a-zA-Z0-9.\-_/]+)["']|["'](\/api\/[a-zA-Z0-9.\-_/]+)["'])/gi;
-  while ((match = apiRouteRegex.exec(combined)) !== null) {
-    const rawMatch = match[1] || match[2] || match[3];
-    if (rawMatch && !rawMatch.endsWith('.js') && !rawMatch.endsWith('.css')) {
-      addSource('REST API', rawMatch, 'JS router bundle', 'GET');
+    // 1. Explicit client calls - fetch('/x'), axios.post('/x'), $.get('/x'), http.delete('/x')
+    const callRegex = /\b(?:fetch|axios(?:\.(get|post|put|patch|delete))?|\$\.(get|post|ajax)|\.(get|post|put|patch|delete))\(\s*["'`]((?:https?:\/\/|\/)[^"'`\s<>]+)["'`]/gi;
+    while ((m = callRegex.exec(content)) !== null) {
+      const verb = (m[1] || m[2] || m[3] || '').toUpperCase();
+      const method = (['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(verb) ? verb : undefined) as DataSourceItem['method'];
+      if (m[4].length > 1 && !STATIC_ASSET.test(m[4])) add(m[4], label, method);
     }
+
+    // 2. Absolute URLs (http/https/ws/wss)
+    const absRegex = /\b(?:https?|wss?):\/\/[a-zA-Z0-9.-]+(?::\d+)?(?:\/[^\s"'<>`\\)]*)?/g;
+    while ((m = absRegex.exec(content)) !== null) {
+      const raw = cleanMatch(m[0]);
+      let host = '';
+      let path = '';
+      try {
+        const parsed = new URL(raw);
+        host = parsed.hostname;
+        path = parsed.pathname + parsed.search;
+      } catch {
+        continue;
+      }
+      if (NOISE_HOSTS.test(host)) continue;
+      const type = classifyEndpoint(raw);
+      if (type === 'REST API') {
+        // Generic URL: only keep it when it looks like an API rather than a page or asset
+        if (STATIC_ASSET.test(path)) continue;
+        if (!(host.startsWith('api.') || host.startsWith('api-') || API_HINT.test(path))) continue;
+        if (/\/(?:manifest|package|tsconfig|composer)\.json/i.test(path)) continue;
+      }
+      // Tracker SDK URLs in static code are covered by tech detection; real beacons come from the headless browser
+      if (type === 'Telemetry / Tracking') continue;
+      add(raw, label);
+    }
+
+    // 3. Relative API routes inside string literals
+    const relRegex = /["'`](\/(?:api|apis|v\d+|graphql|gql|rest|rpc|_api|wp-json|odata)(?:\/[^"'`\s<>]*)?)["'`]/gi;
+    while ((m = relRegex.exec(content)) !== null) {
+      if (!STATIC_ASSET.test(m[1])) add(m[1], label);
+    }
+
+    // 4. SharePoint relative endpoints
+    const spRegex = /(\/_api\/(?:web|lists|search|sp\.)[^\s"'<>`)]*|\/_layouts\/15\/[^\s"'<>`)]+)/gi;
+    while ((m = spRegex.exec(content)) !== null) {
+      add(m[1], label, 'GET', 'SharePoint');
+    }
+
+    // 5. Database connection strings
+    const dbRegex = /\b((?:mongodb(?:\+srv)?|postgres(?:ql)?|mysql|mariadb|rediss?|amqps?|mssql|sqlserver):\/\/[^\s"'<>`]{3,})/gi;
+    while ((m = dbRegex.exec(content)) !== null) {
+      add(m[1], label, 'UNKNOWN', 'Database String');
+    }
+
+    if (results.length >= 400) break;
   }
 
-  const genericApiRegex = /(https?:\/\/[a-zA-Z0-9.\-_]+\/[^\s"'<>)]+\.(json|php|xml|yaml|yml)(\?[^\s"'<>)]*)?)/gi;
-  while ((match = genericApiRegex.exec(combined)) !== null) {
-    addSource('REST API', match[1], 'DOM & JS Bundles Scanner', 'GET');
-  }
+  return results;
+}
 
-  // Cloud APIs & Microservices (AWS, Azure, GCP, Microsoft Graph)
-  const awsApiRegex = /(https?:\/\/[a-zA-Z0-9.\-_]+\.execute-api\.[a-z0-9\-]+\.amazonaws\.com[^\s"'<>)]*)/gi;
-  while ((match = awsApiRegex.exec(combined)) !== null) {
-    addSource('AWS API Gateway', match[1], 'Cloud Endpoint', 'POST');
-  }
-
-  const msGraphRegex = /(https?:\/\/graph\.microsoft\.com[^\s"'<>)]*)/gi;
-  while ((match = msGraphRegex.exec(combined)) !== null) {
-    addSource('Microsoft Graph API', match[1], 'Cloud Endpoint', 'GET');
-  }
-
-  const azureFuncRegex = /(https?:\/\/[a-zA-Z0-9.\-_]+\.azurewebsites\.net\/api[^\s"'<>)]*)/gi;
-  while ((match = azureFuncRegex.exec(combined)) !== null) {
-    addSource('Azure Functions', match[1], 'Cloud Endpoint', 'POST');
-  }
-
-  const gcpApiRegex = /(https?:\/\/[a-zA-Z0-9.\-_]+\.cloudfunctions\.net[^\s"'<>)]*|https?:\/\/[a-zA-Z0-9.\-_]+\.run\.app[^\s"'<>)]*)/gi;
-  while ((match = gcpApiRegex.exec(combined)) !== null) {
-    addSource('GCP Cloud Run / Functions', match[1], 'Cloud Endpoint', 'POST');
-  }
-
-  // 6. WebSockets
-  const wsRegex = /((wss?:\/\/[a-zA-Z0-9.\-_:]+\/[^\s"'<>)]*))/gi;
-  while ((match = wsRegex.exec(combined)) !== null) {
-    addSource('WebSocket', match[1], 'Socket connection string', 'WS');
-  }
-
-  // 7. Database Strings (if exposed in JS config or comments)
-  const dbRegex = /((mongodb(\+srv)?|postgres(ql)?|mysql|redis|amqp):\/\/[^\s"'<>]+)/gi;
-  while ((match = dbRegex.exec(combined)) !== null) {
-    addSource('Database String', match[1], 'Exposed connection string (Security Flag!)', 'GET');
-  }
-
-  return sources;
+/** True when a database connection string still contains an inline password. */
+export function hasInlineCredentials(conn: string): boolean {
+  return /:\/\/[^:/@\s]+:\*\*\*\*@/.test(conn);
 }

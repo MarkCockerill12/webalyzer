@@ -43,7 +43,7 @@ export function TerminalConsole({ logs, analyzing }: TerminalConsoleProps) {
         {logs && logs.length > 0 ? (
           logs.map((log, idx) => {
             const isSystem = log.includes('[SYSTEM]');
-            const isError = log.includes('[WARNING]') || log.includes('[ERROR]');
+            const isError = log.includes('[WARNING]') || log.includes('[ERROR]') || log.includes('[SECRETS]');
             const isSuccess = log.includes('[SUCCESS]');
 
             return (
@@ -70,7 +70,7 @@ export function TerminalConsole({ logs, analyzing }: TerminalConsoleProps) {
         )}
         {analyzing && (
           <div className="text-[#005599] animate-pulse font-bold">
-            &gt; Executing multi-threaded AST & network analysis...
+            &gt; Scan in progress...
           </div>
         )}
         <div ref={terminalEndRef} />

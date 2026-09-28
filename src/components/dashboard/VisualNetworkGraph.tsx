@@ -20,27 +20,29 @@ export function VisualNetworkGraph({ data }: VisualNetworkGraphProps) {
   }
 
   const width = 800;
-  const height = 400;
+  const height = 440;
   const centerX = width / 2;
   const centerY = height / 2;
 
   const targetNode = data.nodes.find((n) => n.type === 'domain') || data.nodes[0];
-  const outerNodes = data.nodes.filter((n) => n.id !== targetNode.id);
-
-  const radius = 150;
-  const step = (2 * Math.PI) / (outerNodes.length || 1);
+  // Inner ellipse: infrastructure + tech. Outer ellipse: backend hosts / data sources.
+  const inner = data.nodes.filter((n) => n.id !== targetNode.id && n.type !== 'datasource');
+  const outer = data.nodes.filter((n) => n.id !== targetNode.id && n.type === 'datasource');
 
   const nodePositions: Record<string, { x: number; y: number }> = {
     [targetNode.id]: { x: centerX, y: centerY },
   };
+  const placeRing = (ring: GraphNode[], rx: number, ry: number, offset: number) => {
+    const step = (2 * Math.PI) / (ring.length || 1);
+    ring.forEach((node, idx) => {
+      const angle = idx * step - Math.PI / 2 + offset;
+      nodePositions[node.id] = { x: centerX + rx * Math.cos(angle), y: centerY + ry * Math.sin(angle) };
+    });
+  };
+  placeRing(inner, outer.length ? 245 : 320, outer.length ? 118 : 170, 0);
+  placeRing(outer, 365, 180, Math.PI / Math.max(outer.length, 1));
 
-  outerNodes.forEach((node, idx) => {
-    const angle = idx * step - Math.PI / 2;
-    nodePositions[node.id] = {
-      x: centerX + radius * Math.cos(angle),
-      y: centerY + radius * Math.sin(angle),
-    };
-  });
+  const shortLabel = (label: string) => (label.length > 22 ? label.slice(0, 20) + '…' : label);
 
   return (
     <div className="y2k-window p-3 space-y-3 relative overflow-hidden">
@@ -50,7 +52,7 @@ export function VisualNetworkGraph({ data }: VisualNetworkGraphProps) {
           <Network className="text-[var(--text-main)]" size={18} />
           <div>
             <div className="font-extrabold text-sm text-[var(--text-main)]">Interactive Visual Dependency Graph</div>
-            <div className="text-[11px] text-slate-700">Live Mapping: Domain &rarr; Tech Stack &rarr; Endpoints &rarr; Infrastructure</div>
+            <div className="text-[11px] text-slate-700">Inner ring: infrastructure &amp; tech &middot; Outer ring: backend hosts &amp; data sources</div>
           </div>
         </div>
 
@@ -73,7 +75,7 @@ export function VisualNetworkGraph({ data }: VisualNetworkGraphProps) {
       </div>
 
       {/* SVG Network Graph */}
-      <div className="relative w-full h-[360px] y2k-inset-box overflow-hidden flex items-center justify-center">
+      <div className="relative w-full h-[440px] y2k-inset-box overflow-hidden flex items-center justify-center">
         <svg
           viewBox={`0 0 ${width} ${height}`}
           className="w-full h-full transition-transform duration-200"
@@ -98,8 +100,8 @@ export function VisualNetworkGraph({ data }: VisualNetworkGraphProps) {
                   y1={start.y}
                   x2={end.x}
                   y2={end.y}
-                  stroke="#000000"
-                  strokeWidth="2"
+                  stroke="var(--shadow)"
+                  strokeWidth="1.5"
                   strokeDasharray="4 3"
                 />
               </g>
@@ -111,7 +113,6 @@ export function VisualNetworkGraph({ data }: VisualNetworkGraphProps) {
             const pos = nodePositions[node.id] || { x: centerX, y: centerY };
             const isTarget = node.id === targetNode.id;
             const isSelected = selectedNode?.id === node.id;
-            const color = isTarget ? 'var(--chrome-light)' : node.type === 'tech' ? 'var(--chrome-dark)' : node.type === 'datasource' ? 'var(--silver-bg-2)' : 'var(--panel-dark)';
 
             return (
               <g
@@ -122,9 +123,9 @@ export function VisualNetworkGraph({ data }: VisualNetworkGraphProps) {
               >
                 <circle
                   r={isTarget ? 26 : 18}
-                  fill={color}
-                  stroke="var(--shadow)"
-                  strokeWidth={isSelected ? 3.5 : 2}
+                  fill="var(--chrome-light)"
+                  stroke={node.color}
+                  strokeWidth={isSelected ? 4 : 2.5}
                   className="shadow-md"
                 />
 
@@ -141,15 +142,17 @@ export function VisualNetworkGraph({ data }: VisualNetworkGraphProps) {
                   {node.type === 'server' && <Server size={isTarget ? 20 : 14} />}
                 </foreignObject>
 
+                <title>{`${node.label}
+${node.detail || ''}`}</title>
                 <text
-                  y={isTarget ? 40 : 30}
+                  y={isTarget ? 40 : pos.y < centerY - 5 ? -24 : 30}
                   textAnchor="middle"
                   fill="var(--text-main)"
                   fontSize={isTarget ? '12' : '10'}
                   fontWeight="bold"
                   className="pointer-events-none font-mono"
                 >
-                  {node.label}
+                  {isTarget ? node.label : shortLabel(node.label)}
                 </text>
               </g>
             );
@@ -163,7 +166,7 @@ export function VisualNetworkGraph({ data }: VisualNetworkGraphProps) {
                 <span className="w-3 h-3 rounded-full border border-[var(--shadow)]" style={{ backgroundColor: selectedNode.color }} />
                 {selectedNode.label} ({selectedNode.type.toUpperCase()})
               </div>
-              <div className="text-[11px] text-slate-700 font-bold truncate">{selectedNode.detail || selectedNode.id}</div>
+              <div className="text-[11px] text-slate-700 font-bold break-all">{selectedNode.detail || selectedNode.id}</div>
             </div>
             <button
               onClick={() => setSelectedNode(null)}

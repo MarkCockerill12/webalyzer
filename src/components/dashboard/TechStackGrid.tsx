@@ -58,7 +58,12 @@ export function TechStackGrid({ techStack }: TechStackGridProps) {
                       {tech.confidence}%
                     </span>
                     {tech.version && (
-                      <span className="text-[10px] text-slate-600 font-mono">v{tech.version}</span>
+                      <span className="text-[10px] text-slate-900 font-mono font-black">v{tech.version}</span>
+                    )}
+                    {tech.evidence && (
+                      <span className="text-[9px] text-slate-500 font-mono" title="Signals that matched">
+                        via {tech.evidence.join(', ')}
+                      </span>
                     )}
                   </div>
                 </div>

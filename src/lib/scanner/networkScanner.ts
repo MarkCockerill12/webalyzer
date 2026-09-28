@@ -1,88 +1,132 @@
-import puppeteer, { Page } from 'puppeteer';
+import puppeteer, { Browser } from 'puppeteer';
+import { buildJsProbeExpression } from './techSignatures';
+import { isPublicHost, USER_AGENT } from './netGuard';
 
-export interface NetworkData {
-  endpoints: Set<string>;
-  technologies: Set<string>;
-  domains: Set<string>;
-  networkLogs: string[];
+export interface CapturedRequest {
+  url: string;
+  method: string;
+  resourceType: string;
 }
 
-export async function runNetworkScanner(url: string, timeoutMs: number = 8000): Promise<NetworkData> {
+export interface NetworkData {
+  ok: boolean;
+  requests: CapturedRequest[]; // xhr / fetch / websocket / eventsource
+  domains: string[];
+  scripts: { url: string; body: string }[];
+  renderedHtml: string;
+  documentHeaders: Record<string, string>;
+  documentStatus: number | null;
+  finalUrl: string | null;
+  cookies: { name: string; domain: string; secure: boolean; httpOnly: boolean; sameSite?: string }[];
+  jsGlobals: Record<string, string | true>;
+}
+
+const MAX_SCRIPTS = 15;
+const MAX_SCRIPT_BYTES = 2_000_000;
+const JS_PROBE = buildJsProbeExpression();
+
+export async function runNetworkScanner(url: string, log: (line: string) => void, timeoutMs = 12000): Promise<NetworkData> {
   const result: NetworkData = {
-    endpoints: new Set(),
-    technologies: new Set(),
-    domains: new Set(),
-    networkLogs: []
+    ok: false,
+    requests: [],
+    domains: [],
+    scripts: [],
+    renderedHtml: '',
+    documentHeaders: {},
+    documentStatus: null,
+    finalUrl: null,
+    cookies: [],
+    jsGlobals: {},
   };
 
-  let browser;
+  const domains = new Set<string>();
+  const pendingScripts: Promise<void>[] = [];
+  let browser: Browser | undefined;
+
   try {
-    result.networkLogs.push(`[PUPPETEER] Launching headless browser...`);
+    log('[BROWSER] Launching headless Chromium...');
     browser = await puppeteer.launch({
       headless: true,
-      args: [
-        '--no-sandbox', 
-        '--disable-setuid-sandbox', 
-        '--disable-dev-shm-usage', 
-        '--disable-gpu',
-        '--single-process'
-      ]
+      // No --single-process: it detaches frames mid-navigation ("Navigating frame was detached") on most real sites.
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-zygote'],
     });
 
     const page = await browser.newPage();
-    
-    // Intercept network requests
+    await page.setUserAgent(USER_AGENT);
+    await page.setViewport({ width: 1366, height: 900 });
     await page.setRequestInterception(true);
-    
-    page.on('request', (request) => {
+
+    page.on('request', async (request) => {
+      if (request.isInterceptResolutionHandled()) return;
       const reqUrl = request.url();
-      const resourceType = request.resourceType();
-      
+      const type = request.resourceType();
+
+      let hostname = '';
       try {
-        const parsedUrl = new URL(reqUrl);
-        result.domains.add(parsedUrl.hostname);
-        
-        // Specifically look for API endpoints
-        if (resourceType === 'xhr' || resourceType === 'fetch' || resourceType === 'websocket') {
-          result.endpoints.add(reqUrl);
-        }
-        
-        // Detect CDNs or specific services via URL
-        if (parsedUrl.hostname.includes('supabase')) result.technologies.add('Supabase');
-        if (parsedUrl.hostname.includes('firebase')) result.technologies.add('Google Firebase');
-        if (parsedUrl.hostname.includes('sharepoint.com')) result.technologies.add('Microsoft SharePoint');
-        if (parsedUrl.hostname.includes('graph.microsoft.com')) result.technologies.add('Microsoft Graph API');
-        if (parsedUrl.hostname.includes('s3.amazonaws')) result.technologies.add('AWS S3');
-        if (parsedUrl.hostname.includes('execute-api')) result.technologies.add('AWS API Gateway');
-        if (parsedUrl.hostname.includes('azurewebsites.net') || parsedUrl.hostname.includes('blob.core.windows.net')) result.technologies.add('Microsoft Azure');
-        if (parsedUrl.hostname.includes('cloudfunctions.net') || parsedUrl.hostname.includes('run.app')) result.technologies.add('Google Cloud (GCP)');
-        if (parsedUrl.hostname.includes('vercel.app')) result.technologies.add('Vercel');
-        
-      } catch(e) {}
-      
-      // We don't want to actually load media/images/fonts to save time and bandwidth
-      if (['image', 'media', 'font', 'stylesheet'].includes(resourceType)) {
-        request.abort();
-      } else {
-        request.continue();
+        hostname = new URL(reqUrl).hostname;
+      } catch {}
+
+      if (reqUrl.startsWith('http') && hostname && !(await isPublicHost(hostname))) {
+        log(`[BROWSER] Blocked request to private address: ${hostname}`);
+        return request.abort('blockedbyclient').catch(() => {});
       }
+      if (hostname) domains.add(hostname);
+
+      if (['xhr', 'fetch', 'websocket', 'eventsource'].includes(type)) {
+        result.requests.push({ url: reqUrl, method: request.method(), resourceType: type });
+      }
+
+      // Skip heavy assets that carry no recon signal
+      if (['image', 'media', 'font'].includes(type)) return request.abort().catch(() => {});
+      return request.continue().catch(() => {});
     });
 
-    result.networkLogs.push(`[PUPPETEER] Navigating to ${url}...`);
-    
-    // Wait until network is mostly idle (2 connections max) or timeout
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: timeoutMs }).catch(() => {
-      result.networkLogs.push(`[PUPPETEER] Navigation timeout reached, extracting partial data.`);
+    page.on('response', (response) => {
+      const req = response.request();
+      if (req.resourceType() !== 'script' || pendingScripts.length >= MAX_SCRIPTS) return;
+      pendingScripts.push(
+        response
+          .text()
+          .then((body) => {
+            if (body.length <= MAX_SCRIPT_BYTES) result.scripts.push({ url: response.url(), body });
+          })
+          .catch(() => {})
+      );
     });
-    
-    result.networkLogs.push(`[PUPPETEER] Captured ${result.endpoints.size} XHR/Fetch endpoints and ${result.domains.size} unique domains.`);
-    
-  } catch (err: any) {
-    result.networkLogs.push(`[PUPPETEER] Error during scan: ${err.message}`);
-  } finally {
-    if (browser) {
-      await browser.close().catch(() => {});
+
+    log(`[BROWSER] Navigating to ${url} and waiting for network idle...`);
+    const mainResponse = await page.goto(url, { waitUntil: 'networkidle2', timeout: timeoutMs }).catch((err) => {
+      log(`[BROWSER] Navigation incomplete (${err?.message || 'timeout'}) - extracting partial data.`);
+      return null;
+    });
+
+    if (mainResponse) {
+      result.documentStatus = mainResponse.status();
+      result.documentHeaders = mainResponse.headers();
     }
+    result.finalUrl = page.url();
+    result.renderedHtml = await page.content().catch(() => '');
+    result.jsGlobals = ((await page.evaluate(JS_PROBE).catch(() => ({}))) || {}) as Record<string, string | true>;
+    result.cookies = (await browser.cookies().catch(() => [])).map((c) => ({
+      name: c.name,
+      domain: c.domain.replace(/^\./, ''),
+      secure: c.secure,
+      httpOnly: Boolean(c.httpOnly),
+      sameSite: c.sameSite,
+    }));
+
+    await Promise.race([Promise.all(pendingScripts), new Promise((r) => setTimeout(r, 2000))]);
+    result.domains = Array.from(domains);
+    result.ok = true;
+
+    log(
+      `[BROWSER] Rendered ${result.renderedHtml.length} bytes, captured ${result.requests.length} XHR/fetch/WS calls, ` +
+        `${result.scripts.length} script bodies, ${Object.keys(result.jsGlobals).length} JS runtime signatures, ${domains.size} contacted domains.`
+    );
+  } catch (err: any) {
+    log(`[BROWSER] Headless scan failed: ${err?.message || err}`);
+  } finally {
+    if (browser) await browser.close().catch(() => {});
   }
 
   return result;

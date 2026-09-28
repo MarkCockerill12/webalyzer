@@ -1,88 +1,75 @@
 import { HistoryInfo } from '../types';
-import { safeFetchJson } from '../utils';
+import { getApexDomain, safeFetchJson } from '../utils';
 
-export function getApexDomain(domain: string): string {
-  const clean = domain.replace(/^https?:\/\//, '').split('/')[0].split(':')[0].toLowerCase();
-  const parts = clean.split('.');
-  if (parts.length <= 2) return clean;
-  if (parts.length >= 3 && (parts[parts.length - 2] === 'co' || parts[parts.length - 2] === 'com' || parts[parts.length - 2] === 'org')) {
-    return parts.slice(-3).join('.');
-  }
-  return parts.slice(-2).join('.');
+const UA = { 'User-Agent': 'Webalyzer/3.0 (OSINT recon; +https://web.archive.org)' };
+
+function tsToDate(ts: string | undefined | null): string | null {
+  if (!ts || ts.length < 8) return null;
+  return `${ts.slice(0, 4)}-${ts.slice(4, 6)}-${ts.slice(6, 8)}`;
 }
 
-export async function fetchWaybackHistory(domainInput: string): Promise<HistoryInfo> {
-  const cleanDomain = domainInput.replace(/^https?:\/\//, '').split('/')[0].split(':')[0].toLowerCase();
-  const apexDomain = getApexDomain(cleanDomain);
+interface Sparkline {
+  first: string | null;
+  last: string | null;
+  firstTs: string | null;
+  years: Record<string, number>;
+}
+
+/** The (undocumented but stable) endpoint that powers the Wayback Machine calendar UI. */
+async function querySparkline(host: string): Promise<Sparkline | null> {
+  const url = `https://web.archive.org/__wb/sparkline?output=json&url=${encodeURIComponent(host)}&collapse=timestamp:4`;
+  const { ok, data } = await safeFetchJson<any>(url, { headers: UA, signal: AbortSignal.timeout(9000) });
+  if (!ok || !data || !data.first_ts) return null;
+
+  const years: Record<string, number> = {};
+  for (const [year, months] of Object.entries<number[]>(data.years || {})) {
+    years[year] = Array.isArray(months) ? months.reduce((a, b) => a + b, 0) : 0;
+  }
+  return { first: tsToDate(data.first_ts), last: tsToDate(data.last_ts), firstTs: data.first_ts, years };
+}
+
+async function queryCdxEarliest(host: string): Promise<string | null> {
+  const url = `https://web.archive.org/cdx/search/cdx?url=${encodeURIComponent(host)}&output=json&fl=timestamp&limit=1`;
+  const { ok, data } = await safeFetchJson<any[]>(url, { headers: UA, signal: AbortSignal.timeout(8000) });
+  if (ok && Array.isArray(data) && data.length > 1) return tsToDate(data[1][0]);
+  return null;
+}
+
+export async function fetchWaybackHistory(hostname: string): Promise<HistoryInfo> {
+  const host = hostname.toLowerCase();
+  const apexDomain = getApexDomain(host);
 
   const result: HistoryInfo = {
     firstOnlineDate: null,
+    lastSeenDate: null,
     apexDomain,
     apexDomainFirstOnlineDate: null,
-    waybackUrl: `https://web.archive.org/web/*/${apexDomain}`,
+    waybackUrl: `https://web.archive.org/web/*/${host}`,
     totalSnapshots: 0,
   };
 
-  const queryCdxEarliest = async (targetDom: string): Promise<string | null> => {
-    const cdxUrl = `https://web.archive.org/cdx/search/cdx?url=${encodeURIComponent(targetDom)}&output=json&fl=timestamp,original,statuscode&limit=5&sort=asc`;
-    const { ok, data } = await safeFetchJson<any[]>(cdxUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Webalyzer/2.5' },
-      signal: AbortSignal.timeout(6000),
-    });
-
-    if (ok && Array.isArray(data) && data.length > 1) {
-      const firstRow = data[1];
-      const rawTs = firstRow[0];
-      if (rawTs && typeof rawTs === 'string' && rawTs.length >= 8) {
-        const year = rawTs.substring(0, 4);
-        const month = rawTs.substring(4, 6);
-        const day = rawTs.substring(6, 8);
-        return `${year}-${month}-${day}`;
-      }
-    }
-    return null;
-  };
-
   try {
-    const [apexDate, exactDate] = await Promise.all([
-      queryCdxEarliest(apexDomain),
-      cleanDomain !== apexDomain ? queryCdxEarliest(cleanDomain) : Promise.resolve(null),
+    const [hostSpark, apexSpark] = await Promise.all([
+      querySparkline(host),
+      apexDomain !== host ? querySparkline(apexDomain) : Promise.resolve(null),
     ]);
 
-    result.apexDomainFirstOnlineDate = apexDate;
-    result.firstOnlineDate = exactDate || apexDate;
-
-    if (apexDate) {
-      result.oldestSnapshotUrl = `https://web.archive.org/web/${apexDate.replace(/-/g, '')}/${apexDomain}`;
+    if (hostSpark) {
+      result.firstOnlineDate = hostSpark.first;
+      result.lastSeenDate = hostSpark.last;
+      result.yearlySnapshots = hostSpark.years;
+      result.totalSnapshots = Object.values(hostSpark.years).reduce((a, b) => a + b, 0);
+      result.oldestSnapshotUrl = `https://web.archive.org/web/${hostSpark.firstTs}/${host}`;
+    } else {
+      result.firstOnlineDate = await queryCdxEarliest(host);
+      if (result.firstOnlineDate) {
+        result.oldestSnapshotUrl = `https://web.archive.org/web/${result.firstOnlineDate.replace(/-/g, '')}/${host}`;
+      }
     }
 
-    const countUrl = `https://web.archive.org/cdx/search/cdx?url=${encodeURIComponent(apexDomain)}&output=json&fl=timestamp&showNumPages=true`;
-    const { ok: countOk, data: countData } = await safeFetchJson<number>(countUrl, {
-      headers: { 'User-Agent': 'Webalyzer/2.5' },
-      signal: AbortSignal.timeout(5000),
-    });
-    if (countOk && typeof countData === 'number') {
-      result.totalSnapshots = countData * 10000;
-    }
+    result.apexDomainFirstOnlineDate = apexDomain === host ? result.firstOnlineDate : apexSpark?.first || (await queryCdxEarliest(apexDomain));
   } catch (err) {
     console.error('Wayback scanner error:', err);
-  }
-
-  // Smart fallback defaults based on domain popularity
-  if (!result.firstOnlineDate) {
-    if (apexDomain.includes('pinterest')) {
-      result.firstOnlineDate = '2010-01-26';
-      result.apexDomainFirstOnlineDate = '2010-01-26';
-    } else if (apexDomain.includes('google')) {
-      result.firstOnlineDate = '1998-11-11';
-      result.apexDomainFirstOnlineDate = '1998-11-11';
-    } else if (apexDomain.includes('github')) {
-      result.firstOnlineDate = '2007-10-19';
-      result.apexDomainFirstOnlineDate = '2007-10-19';
-    } else {
-      result.firstOnlineDate = '2012-04-10';
-      result.apexDomainFirstOnlineDate = '2012-04-10';
-    }
   }
 
   return result;
